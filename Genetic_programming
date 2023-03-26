@@ -1,0 +1,80 @@
+import random
+import numpy as np
+from sklearn.datasets import load_breast_cancer
+from sklearn.model_selection import train_test_split
+from deap import base, creator, gp, tools
+
+# Load the breast cancer dataset
+data = load_breast_cancer()
+X_train, X_test, y_train, y_test = train_test_split(data.data, data.target, test_size=0.2, random_state=42)
+
+# Define the primitive set for GP
+pset = gp.PrimitiveSet("MAIN", X_train.shape[1])
+pset.addPrimitive(np.add, 2)
+pset.addPrimitive(np.subtract, 2)
+pset.addPrimitive(np.multiply, 2)
+pset.addPrimitive(np.divide, 2)
+pset.addPrimitive(np.maximum, 2)
+pset.addPrimitive(np.minimum, 2)
+pset.addPrimitive(np.cos, 1)
+pset.addPrimitive(np.sin, 1)
+pset.addPrimitive(np.tan, 1)
+pset.addPrimitive(np.exp, 1)
+pset.addPrimitive(np.log, 1)
+pset.addTerminal(1.0)
+pset.addTerminal(-1.0)
+pset.renameArguments(**{f"ARG{i}": f"x{i}" for i in range(X_train.shape[1])})
+
+# Define the fitness function
+def evaluate(individual):
+    # Compile the individual to a function
+    func = gp.compile(individual, pset)
+    # Evaluate the function on the training set
+    y_pred = np.array([func(*x) for x in X_train])
+    # Compute the accuracy and complexity of the solution
+    accuracy = sum(y_pred == y_train) / len(y_train)
+    complexity = len(individual)
+    return accuracy, complexity
+
+# Create the fitness and individual classes
+creator.create("FitnessMax", base.Fitness, weights=(1.0, -0.5))
+creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMax)
+
+# Create the toolbox
+toolbox = base.Toolbox()
+toolbox.register("expr", gp.genFull, pset=pset, min_=1, max_=3)
+toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
+toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+toolbox.register("compile", gp.compile, pset=pset)
+toolbox.register("evaluate", evaluate)
+toolbox.register("select", tools.selTournament, tournsize=3)
+toolbox.register("mate", gp.cxOnePoint)
+toolbox.register("mutate", gp.mutNodeReplacement, pset=pset)
+
+# Set the parameters for the genetic algorithm
+pop_size = 100
+num_gens = 50
+mut_rate = 0.2
+cx_rate = 0.5
+
+# Create the initial population
+pop = toolbox.population(n=pop_size)
+
+# Evaluate the fitness of the initial population
+fitnesses = map(toolbox.evaluate, pop)
+for ind, fit in zip(pop, fitnesses):
+    ind.fitness.values = fit
+
+# Perform the genetic algorithm
+for gen in range(num_gens):
+    # Select the next generation
+    offspring = toolbox.select(pop, len(pop))
+    # Clone the selected individuals
+    offspring = list(map(toolbox.clone, offspring))
+    # Apply crossover and mutation
+    for child1, child2 in zip(offspring[::2], offspring[1::2]):
+        if random.random() < cx_rate:
+            toolbox.mate(child1, child2)
+            del child1.fitness.values
+            del child2.fitness.values
+
